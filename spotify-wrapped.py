@@ -3,6 +3,7 @@ import pytz
 import time
 import requests
 import pandas as pd
+from datetime import datetime
 
 # your client id
 client_id = ''
@@ -150,44 +151,32 @@ for artist_list in unique_artist_sublists:
         print('Timer reset.')
 
 track_artist_album_df['Artist Image URL'] = track_artist_album_df['Artist URI'].map(unique_artist_image_url_dict)
-merged_track_artist_album_url_df = pd.merge(cleaned_df, track_artist_album_df, on='Track URI', how='left')
+spotify_data = pd.merge(cleaned_df, track_artist_album_df, on='Track URI', how='left')
 
-merged_track_artist_album_url_df['Duplicate Track URI'] = merged_track_artist_album_url_df['Track URI']
-groups = merged_track_artist_album_url_df.groupby(['Track', 'Artist'])
-
-for group_name, group_df in groups:
-    if len(group_df) > 1:
-        unique_uris = group_df['Track URI'].unique()
-        merged_track_artist_album_url_df.loc[group_df.index, 'Duplicate Track URI'] = unique_uris[0]
+def get_top_100(count_type, spotify_data):
+    
+    if count_type == 'Track':
+        spotify_data[['Track', 'Album']] = spotify_data[['Track', 'Album']].apply(lambda x: x.str.replace('Feat', 'feat'))
+        track_artist_groups = spotify_data.groupby(['Track', 'Artist'])
+        songs_dict = {}
+        for group, group_df in track_artist_groups:
+            max_uri = group_df['Track URI'].value_counts().idxmax()
+            group_df['Track URI'] = max_uri
+            songs_dict[group] = group_df
+        spotify_data = pd.concat(songs_dict.values(), ignore_index=True)
         
-merged_track_artist_album_url_df['Track URI'] = merged_track_artist_album_url_df['Duplicate Track URI']
-merged_track_artist_album_url_df.drop('Duplicate Track URI', axis=1, inplace=True)
+    uri_counts = spotify_data[f'{count_type} URI'].value_counts().reset_index(name='Streams')
+    uri_counts.columns = [f'{count_type} URI', 'Streams']
+    spotify_data = pd.merge(spotify_data, uri_counts, on=f'{count_type} URI', how='left')
+    spotify_data = spotify_data.drop_duplicates(subset=f'{count_type} URI')
+    spotify_data.sort_values(by='Streams', ascending=False, inplace=True, ignore_index=True)
+    top_100 = spotify_data.head(100).copy().assign(Rank=lambda x: range(1, len(x) + 1))
+    top_100['Streams'] = top_100['Streams'].astype(int)
+    return top_100
 
-track_df = merged_track_artist_album_url_df[['Track', 'Album', 'Artist', 'Track URI']]
-track_count_df = track_df['Track URI'].value_counts().reset_index()
-track_grouped_df = track_df.groupby('Track URI').agg({'Track': lambda x: ', '.join(x.unique()), 'Artist': lambda x: ', '.join(x.unique())}).reset_index()
-top_tracks = track_count_df.rename(columns={'Track URI': 'Streams', 'index': 'Track URI'}).merge(track_grouped_df, on='Track URI')
-top_tracks = top_tracks[['Track', 'Artist', 'Track URI', 'Streams']]
-top_tracks = top_tracks.drop('Track URI', axis=1)
-
-album_df = merged_track_artist_album_url_df[['Album', 'Artist', 'Album URI']]
-album_count_df = album_df['Album URI'].value_counts().reset_index()
-album_grouped_df = album_df.groupby('Album URI').agg({'Album': lambda x: ', '.join(x.unique()), 'Artist': lambda x: ', '.join(x.unique())}).reset_index()
-top_albums = album_count_df.rename(columns={'Album URI': 'Streams', 'index': 'Album URI'}).merge(album_grouped_df, on='Album URI')
-top_albums = top_albums[['Album', 'Artist', 'Album URI', 'Streams']]
-album_url_dict = track_artist_album_df.set_index('Album URI')['Album Image URL'].to_dict()
-top_albums['Album Image URL'] = top_albums['Album URI'].map(album_url_dict)
-top_albums = top_albums.drop('Album URI', axis=1)
-
-artist_df = merged_track_artist_album_url_df[['Artist', 'Artist URI']]
-artist_count_df = artist_df['Artist URI'].value_counts().reset_index()
-artist_grouped_df = artist_df.groupby('Artist URI').agg({'Artist': lambda x: ', '.join(x.unique()), 'Artist': lambda x: ', '.join(x.unique())}).reset_index()
-top_artists = artist_count_df.rename(columns={'Artist URI': 'Streams', 'index': 'Artist URI'}).merge(artist_grouped_df, on='Artist URI')
-top_artists = top_artists[['Artist', 'Artist URI', 'Streams']]
-artist_url_dict = track_artist_album_df.set_index('Artist URI')['Artist Image URL'].to_dict()
-top_artists['Artist Image URL'] = top_artists['Artist URI'].map(artist_url_dict)
-top_artists = top_artists.drop('Artist URI', axis=1)
-
-top_tracks.to_excel(f'{output_path}top-tracks.xlsx', index=False)
-top_albums.to_excel(f'{output_path}top-albums.xlsx', index=False)
-top_artists.to_excel(f'{output_path}top-artists.xlsx', index=False)
+top_100_tracks = get_top_100('Track', spotify_data)[['Rank', 'Track', 'Album', 'Artist', 'Streams']]
+top_100_tracks.to_excel(f'{output_path}top-100-tracks.xlsx', index=False)
+top_100_artists = get_top_100('Artist', spotify_data)[['Rank', 'Artist', 'Streams', 'Artist Image URL']]
+top_100_artists.to_excel(f'{output_path}top-100-artists.xlsx', index=False)
+top_100_albums = get_top_100('Album', spotify_data)[['Rank', 'Album', 'Artist', 'Streams', 'Album Image URL']]
+top_100_albums.to_excel(f'{output_path}top-100-albums.xlsx', index=False)
