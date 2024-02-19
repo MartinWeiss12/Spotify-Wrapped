@@ -153,9 +153,9 @@ for artist_list in unique_artist_sublists:
 track_artist_album_df['Artist Image URL'] = track_artist_album_df['Artist URI'].map(unique_artist_image_url_dict)
 spotify_data = pd.merge(cleaned_df, track_artist_album_df, on='Track URI', how='left')
 
-def get_top_100(count_type, spotify_data):
+def get_top_100(entity, spotify_data):
     
-    if count_type == 'Track':
+    if entity == 'Track':
         spotify_data[['Track', 'Album']] = spotify_data[['Track', 'Album']].apply(lambda x: x.str.replace('Feat', 'feat'))
         track_artist_groups = spotify_data.groupby(['Track', 'Artist'])
         songs_dict = {}
@@ -165,10 +165,10 @@ def get_top_100(count_type, spotify_data):
             songs_dict[group] = group_df
         spotify_data = pd.concat(songs_dict.values(), ignore_index=True)
         
-    uri_counts = spotify_data[f'{count_type} URI'].value_counts().reset_index(name='Streams')
-    uri_counts.columns = [f'{count_type} URI', 'Streams']
-    spotify_data = pd.merge(spotify_data, uri_counts, on=f'{count_type} URI', how='left')
-    spotify_data = spotify_data.drop_duplicates(subset=f'{count_type} URI')
+    uri_counts = spotify_data[f'{entity} URI'].value_counts().reset_index(name='Streams')
+    uri_counts.columns = [f'{entity} URI', 'Streams']
+    spotify_data = pd.merge(spotify_data, uri_counts, on=f'{entity} URI', how='left')
+    spotify_data = spotify_data.drop_duplicates(subset=f'{entity} URI')
     spotify_data.sort_values(by='Streams', ascending=False, inplace=True, ignore_index=True)
     top_100 = spotify_data.head(100).copy().assign(Rank=lambda x: range(1, len(x) + 1))
     top_100['Streams'] = top_100['Streams'].astype(int)
